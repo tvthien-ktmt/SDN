@@ -34,7 +34,7 @@ class SimpleTopo(Topo):
             self.addLink(h, s1)
 
 
-def collect_normal_traffic(net, duration=300):
+def collect_normal_traffic(net, duration=3000):
     """
     Sinh traffic BINH THUONG - nhieu loai khac nhau
     Dam bao data_collector.py dang chay voi CURRENT_LABEL = 0
@@ -75,7 +75,7 @@ def collect_normal_traffic(net, duration=300):
     print("[NORMAL] HOAN THANH thu thap traffic binh thuong!")
 
 
-def collect_attack_traffic(net, duration=300):
+def collect_attack_traffic(net, duration=3000):
     """
     Sinh traffic TAN CONG DDoS
     Dam bao data_collector.py dang chay voi CURRENT_LABEL = 1
@@ -129,8 +129,8 @@ def main():
     parser = argparse.ArgumentParser(description='Mininet Traffic Generator for DDoS Dataset')
     parser.add_argument('--mode', choices=['normal', 'attack'], required=True,
                         help='normal: safe traffic | attack: DDoS traffic')
-    parser.add_argument('--duration', type=int, default=300,
-                        help='Thoi gian thu thap (giay). Default=300 (5 phut). Vi du: 7200 = 2 tieng')
+    parser.add_argument('--duration', type=int, default=3000,
+                        help='Thoi gian thu thap (giay). Default=3000 (50 phut). Vi du: 7200 = 2 tieng')
     args = parser.parse_args()
 
     setLogLevel('info')
