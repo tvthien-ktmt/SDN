@@ -34,7 +34,7 @@ class SimpleTopo(Topo):
             self.addLink(h, s1)
 
 
-def collect_normal_traffic(net):
+def collect_normal_traffic(net, duration=300):
     """
     Sinh traffic BINH THUONG - nhieu loai khac nhau
     Dam bao data_collector.py dang chay voi CURRENT_LABEL = 0
@@ -43,9 +43,9 @@ def collect_normal_traffic(net):
 
     print("\n[NORMAL] Bat dau sinh traffic binh thuong...")
     print("[NORMAL] Dam bao data_collector.py: CURRENT_LABEL = 0")
-    print("[NORMAL] Thu thap trong 300 giay (5 phut)...\n")
+    print(f"[NORMAL] Thu thap trong {duration} giay ({duration//60} phut)...\n")
 
-    end_time = time.time() + 300  # Thu thap 5 phut (du de co ~200 mau)
+    end_time = time.time() + duration
 
     while time.time() < end_time:
         # 1. Ping bình thường giữa các host
@@ -75,7 +75,7 @@ def collect_normal_traffic(net):
     print("[NORMAL] HOAN THANH thu thap traffic binh thuong!")
 
 
-def collect_attack_traffic(net):
+def collect_attack_traffic(net, duration=300):
     """
     Sinh traffic TAN CONG DDoS
     Dam bao data_collector.py dang chay voi CURRENT_LABEL = 1
@@ -84,14 +84,13 @@ def collect_attack_traffic(net):
 
     print("\n[ATTACK] Bat dau sinh traffic tan cong DDoS...")
     print("[ATTACK] Dam bao data_collector.py: CURRENT_LABEL = 1")
-    print("[ATTACK] Thu thap trong 300 giay (5 phut)...\n")
+    print(f"[ATTACK] Thu thap trong {duration} giay ({duration//60} phut)...\n")
 
-    # Cai dat iperf server tren h3, h4
     h3.cmd('iperf3 -s &')
     h4.cmd('iperf3 -s &')
     time.sleep(1)
 
-    end_time = time.time() + 300  # Thu thap 5 phut (du de co ~200 mau)
+    end_time = time.time() + duration
 
     while time.time() < end_time:
         # 1. ICMP Flood (ping flood) tu h1 -> h4
@@ -129,13 +128,16 @@ def collect_attack_traffic(net):
 def main():
     parser = argparse.ArgumentParser(description='Mininet Traffic Generator for DDoS Dataset')
     parser.add_argument('--mode', choices=['normal', 'attack'], required=True,
-                        help='normal: thu thap traffic binh thuong | attack: thu thap traffic tan cong')
+                        help='normal: safe traffic | attack: DDoS traffic')
+    parser.add_argument('--duration', type=int, default=300,
+                        help='Thoi gian thu thap (giay). Default=300 (5 phut). Vi du: 7200 = 2 tieng')
     args = parser.parse_args()
 
     setLogLevel('info')
 
     print("=" * 60)
-    print(f"  CHE DO: {'BINH THUONG (label=0)' if args.mode == 'normal' else 'TAN CONG (label=1)'}")
+    print(f"  CHE DO:   {'BINH THUONG (label=0)' if args.mode == 'normal' else 'TAN CONG (label=1)'}")
+    print(f"  THOI GIAN: {args.duration} giay ({args.duration//60} phut)")
     print("=" * 60)
 
     topo = SimpleTopo()
@@ -159,9 +161,9 @@ def main():
 
     # Sinh traffic theo mode
     if args.mode == 'normal':
-        collect_normal_traffic(net)
+        collect_normal_traffic(net, args.duration)
     else:
-        collect_attack_traffic(net)
+        collect_attack_traffic(net, args.duration)
 
     net.stop()
     print("\n[DONE] Da dung Mininet. Kiem tra file collected_data.csv")
