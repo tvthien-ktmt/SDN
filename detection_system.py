@@ -18,18 +18,26 @@ class DDoSDetection(app_manager.RyuApp):
         # Load AI model
         try:
             self.model = joblib.load('ddos_model.sav')
-            # Auto-detect feature count expected by model
             n_feat = self.model.n_features_in_
-            if n_feat == 3:
-                self.feature_names = ['pkt_rate', 'byte_rate', 'flow_dur']
-            else:
-                # Legacy 5-feature model (includes entropy columns)
-                self.feature_names = ['pkt_rate', 'byte_rate', 'flow_dur', 'src_ip_ent', 'dst_ip_ent']
-            self.logger.info("=== AI MODEL LOADED: expects %d features: %s ===",
+            # Map so feature -> danh sach feature name tuong ung
+            feat_map = {
+                8: ['pkt_rate', 'byte_rate', 'flow_dur',
+                    'src_ip_ent', 'dst_ip_ent',
+                    'avg_pkt_size', 'protocol', 'n_flows_same_src'],
+                5: ['pkt_rate', 'byte_rate', 'flow_dur', 'src_ip_ent', 'dst_ip_ent'],
+                3: ['pkt_rate', 'byte_rate', 'flow_dur'],
+            }
+            self.feature_names = feat_map.get(
+                n_feat,
+                ['pkt_rate', 'byte_rate', 'flow_dur', 'src_ip_ent', 'dst_ip_ent']
+            )
+            self.logger.info("=== AI MODEL LOADED: %d features: %s ===",
                              n_feat, self.feature_names)
         except Exception as e:
             self.model = None
-            self.feature_names = ['pkt_rate', 'byte_rate', 'flow_dur']
+            self.feature_names = ['pkt_rate', 'byte_rate', 'flow_dur',
+                                  'src_ip_ent', 'dst_ip_ent',
+                                  'avg_pkt_size', 'protocol', 'n_flows_same_src']
             self.logger.error("=== ERROR: ddos_model.sav NOT FOUND: %s ===", e)
 
         self.datapaths = {}

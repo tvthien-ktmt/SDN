@@ -2,13 +2,16 @@
 # Ryu app de thu thap flow stats va luu vao CSV de train model
 # Chay: ryu-manager data_collector.py
 #
-# Features thu thap:
-#   pkt_rate       - so goi tin / giay
-#   byte_rate      - so byte / giay
-#   flow_dur       - thoi gian flow (giay)
-#   avg_pkt_size   - kich thuoc goi trung binh (byte/packet)
-#   protocol       - giao thuc (1=ICMP, 6=TCP, 17=UDP, 0=unknown)
+# Features thu thap (8 features):
+#   pkt_rate         - so goi tin / giay
+#   byte_rate        - so byte / giay
+#   flow_dur         - thoi gian flow (giay)
+#   src_ip_ent       - entropy cua cac src IP trong window quet (tinh THAT, khong hardcode 0)
+#   dst_ip_ent       - entropy cua cac dst IP trong window quet (tinh THAT, khong hardcode 0)
+#   avg_pkt_size     - kich thuoc goi trung binh (byte/packet)
+#   protocol         - giao thuc (1=ICMP, 6=TCP, 17=UDP, 0=unknown)
 #   n_flows_same_src - so flow cung src IP trong cung window quet
+#   label            - 0=SAFE, 1=ATTACK
 #
 # Quy trinh:
 #   1. Chay file nay thay vi detection_system.py
@@ -22,7 +25,6 @@
 import csv
 import math
 import os
-import time
 import pandas as pd
 
 from ryu.base import app_manager
@@ -34,12 +36,34 @@ from ryu.lib import hub
 # ================================================================
 # *** THAY DOI BIEN NAY KHI CHUYEN GIA DOAN THU THAP ***
 #   0 = Thu thap traffic BINH THUONG (ping, iperf nhe)
-#   1 = Thu thap traffic TAN CONG (hping3, iperf flood)
+#   1 = Thu thap traffic TAN CONG (iperf flood, ping flood)
 # ================================================================
 CURRENT_LABEL = 0
 
 OUTPUT_CSV = 'collected_data.csv'
 COLLECT_INTERVAL = 3  # Thu thap moi 3 giay
+
+HEADERS = [
+    'pkt_rate', 'byte_rate', 'flow_dur',
+    'src_ip_ent', 'dst_ip_ent',
+    'avg_pkt_size', 'protocol', 'n_flows_same_src',
+    'label'
+]
+
+
+def calc_entropy(data_list):
+    """Tinh Shannon entropy cua mot danh sach gia tri."""
+    if not data_list or len(data_list) < 2:
+        return 0.0
+    counts = {}
+    for item in data_list:
+        counts[item] = counts.get(item, 0) + 1
+    total = len(data_list)
+    entropy = 0.0
+    for c in counts.values():
+        p = c / total
+        entropy -= p * math.log2(p)
+    return round(entropy, 6)
 
 
 class DataCollector(app_manager.RyuApp):
@@ -55,32 +79,25 @@ class DataCollector(app_manager.RyuApp):
         if not os.path.exists(OUTPUT_CSV):
             with open(OUTPUT_CSV, 'w', newline='') as f:
                 writer = csv.writer(f)
-                writer.writerow([
-                    'pkt_rate', 'byte_rate', 'flow_dur',
-                    'avg_pkt_size', 'protocol', 'n_flows_same_src',
-                    'label'
-                ])
+                writer.writerow(HEADERS)
             self.logger.info("Created new file: %s", OUTPUT_CSV)
         else:
             existing = pd.read_csv(OUTPUT_CSV)
             self.sample_count = len(existing)
-            self.logger.info("Appending to existing file: %s (%d rows)", OUTPUT_CSV, self.sample_count)
+            self.logger.info("Appending to existing: %s (%d rows)", OUTPUT_CSV, self.sample_count)
 
-        label_name = "BINH THUONG (SAFE)" if CURRENT_LABEL == 0 else "TAN CONG DDoS (ATTACK)"
-        self.logger.info("=== DATA COLLECTOR READY ===")
-        self.logger.info("=== COLLECTING LABEL: %s ===", label_name)
-
+        label_name = "BINH THUONG (SAFE)" if CURRENT_LABEL == 0 else "TAN CONG (ATTACK)"
+        self.logger.info("=== DATA COLLECTOR READY | Label: %s ===", label_name)
         self.monitor_thread = hub.spawn(self._monitor)
 
     # ----------------------------------------------------------
-    # Cai dat table-miss flow de goi tin len controller
+    # Table-miss flow: gui goi tin len controller
     # ----------------------------------------------------------
     @set_ev_cls(ofp_event.EventOFPSwitchFeatures, CONFIG_DISPATCHER)
     def switch_features_handler(self, ev):
         datapath = ev.msg.datapath
         ofproto = datapath.ofproto
         parser = datapath.ofproto_parser
-
         match = parser.OFPMatch()
         actions = [parser.OFPActionOutput(ofproto.OFPP_CONTROLLER,
                                           ofproto.OFPCML_NO_BUFFER)]
@@ -118,10 +135,8 @@ class DataCollector(app_manager.RyuApp):
         dst = eth.dst
         src = eth.src
         dpid = datapath.id
-
         self.mac_to_port.setdefault(dpid, {})
         self.mac_to_port[dpid][src] = in_port
-
         out_port = self.mac_to_port[dpid].get(dst, ofproto.OFPP_FLOOD)
         actions = [parser.OFPActionOutput(out_port)]
 
@@ -163,9 +178,19 @@ class DataCollector(app_manager.RyuApp):
         if not body:
             return
 
-        new_rows = []
+        # === Tinh entropy THAT (khong hardcode = 0) ===
+        # Lay tat ca src/dst IP trong window nay de tinh entropy toan cuc
+        src_ips = [stat.match.get('ipv4_src')
+                   for stat in body
+                   if stat.priority > 0 and 'ipv4_src' in stat.match]
+        dst_ips = [stat.match.get('ipv4_dst')
+                   for stat in body
+                   if stat.priority > 0 and 'ipv4_dst' in stat.match]
 
-        # Tinh n_flows_same_src: dem so flow theo tung src IP
+        src_ip_ent = calc_entropy(src_ips)   # Entropy cua tap src IP
+        dst_ip_ent = calc_entropy(dst_ips)   # Entropy cua tap dst IP
+
+        # Dem so flow theo tung src IP (cho feature n_flows_same_src)
         src_ip_count = {}
         for stat in body:
             if stat.packet_count == 0 or stat.priority == 0:
@@ -174,6 +199,7 @@ class DataCollector(app_manager.RyuApp):
             if src_ip:
                 src_ip_count[src_ip] = src_ip_count.get(src_ip, 0) + 1
 
+        new_rows = []
         for stat in body:
             if stat.packet_count == 0:
                 continue
@@ -187,24 +213,21 @@ class DataCollector(app_manager.RyuApp):
             pkt_rate  = stat.packet_count / duration
             byte_rate = stat.byte_count / duration
 
-            # Chi luu cac flow co hoat dong thuc su
+            # Loc bo flow idle (khong co hoat dong thuc su)
             if pkt_rate < 0.01 and byte_rate < 1:
                 continue
 
-            # Feature moi: avg_pkt_size
-            avg_pkt_size = stat.byte_count / stat.packet_count if stat.packet_count > 0 else 0
-
-            # Feature moi: protocol (lay tu match field)
-            protocol = stat.match.get('ip_proto', 0)  # 1=ICMP, 6=TCP, 17=UDP
-
-            # Feature moi: n_flows_same_src
-            src_ip = stat.match.get('ipv4_src', None)
+            avg_pkt_size     = stat.byte_count / stat.packet_count if stat.packet_count > 0 else 0
+            protocol         = stat.match.get('ip_proto', 0)   # 1=ICMP, 6=TCP, 17=UDP
+            src_ip           = stat.match.get('ipv4_src', None)
             n_flows_same_src = src_ip_count.get(src_ip, 1) if src_ip else 1
 
             new_rows.append([
                 round(pkt_rate, 6),
                 round(byte_rate, 6),
                 round(duration, 3),
+                src_ip_ent,            # Entropy tinh that tu window
+                dst_ip_ent,            # Entropy tinh that tu window
                 round(avg_pkt_size, 3),
                 int(protocol),
                 int(n_flows_same_src),
@@ -217,7 +240,6 @@ class DataCollector(app_manager.RyuApp):
                 writer.writerows(new_rows)
             self.sample_count += len(new_rows)
             label_name = "SAFE" if CURRENT_LABEL == 0 else "ATTACK"
-            self.logger.info(
-                "[%s] Saved %d samples | Total: %d rows",
-                label_name, len(new_rows), self.sample_count
-            )
+            self.logger.info("[%s] +%d samples | Total: %d | src_ent=%.3f dst_ent=%.3f",
+                             label_name, len(new_rows), self.sample_count,
+                             src_ip_ent, dst_ip_ent)

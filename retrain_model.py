@@ -55,12 +55,14 @@ print("\n" + "="*60)
 print("BUOC 2: Chuan bi features")
 print("="*60)
 
-# Chi dung cac features co y nghia (bo entropy vi luon = 0)
+# 8 features - khop voi data_collector.py
 FEATURES = [
-    'pkt_rate',          # Packets/giay - feature quan trong nhat
+    'pkt_rate',          # Packets/giay
     'byte_rate',         # Bytes/giay
     'flow_dur',          # Thoi gian flow
-    'avg_pkt_size',      # Kich thuoc trung binh goi tin
+    'src_ip_ent',        # Entropy src IP (tinh that tu window)
+    'dst_ip_ent',        # Entropy dst IP (tinh that tu window)
+    'avg_pkt_size',      # Kich thuoc goi trung binh
     'protocol',          # Giao thuc: 1=ICMP, 6=TCP, 17=UDP
     'n_flows_same_src',  # So luong flow cung nguon
 ]
@@ -148,8 +150,7 @@ model_data = {
 joblib.dump(model, OUTPUT_SAV)
 print(f"Da luu model vao: {OUTPUT_SAV}")
 print()
-print("QUAN TRONG: Model moi dung 6 features: pkt_rate, byte_rate, flow_dur, avg_pkt_size, protocol, n_flows_same_src")
-print("=> Chay lai data_collector.py (da cap nhat) de thu thap dung format!")
+print("Model dung 8 features: pkt_rate, byte_rate, flow_dur, src_ip_ent, dst_ip_ent, avg_pkt_size, protocol, n_flows_same_src")
 print()
 
 # In ra doan code de copy vao detection_system.py
