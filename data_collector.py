@@ -116,7 +116,10 @@ class DataCollector(app_manager.RyuApp):
             self.datapaths.pop(datapath.id, None)
 
     # ----------------------------------------------------------
-    # PacketIn: L2 forwarding de ping hoat dong
+    # PacketIn: L2/L3 forwarding
+    # - ARP/non-IP: cai flow L2 theo MAC
+    # - IPv4:       cai flow L3 theo IP+protocol
+    #   => Flow stats se co ipv4_src, ipv4_dst de tinh entropy THAT
     # ----------------------------------------------------------
     @set_ev_cls(ofp_event.EventOFPPacketIn, MAIN_DISPATCHER)
     def _packet_in_handler(self, ev):
@@ -126,26 +129,47 @@ class DataCollector(app_manager.RyuApp):
         parser = datapath.ofproto_parser
         in_port = msg.match['in_port']
 
-        from ryu.lib.packet import packet, ethernet, ether_types
+        from ryu.lib.packet import packet, ethernet, ether_types, ipv4 as ipv4_lib
         pkt = packet.Packet(msg.data)
         eth = pkt.get_protocols(ethernet.ethernet)[0]
         if eth.ethertype == ether_types.ETH_TYPE_LLDP:
             return
 
-        dst = eth.dst
-        src = eth.src
+        dst_mac = eth.dst
+        src_mac = eth.src
         dpid = datapath.id
+
+        # Hoc MAC -> port
         self.mac_to_port.setdefault(dpid, {})
-        self.mac_to_port[dpid][src] = in_port
-        out_port = self.mac_to_port[dpid].get(dst, ofproto.OFPP_FLOOD)
+        self.mac_to_port[dpid][src_mac] = in_port
+        out_port = self.mac_to_port[dpid].get(dst_mac, ofproto.OFPP_FLOOD)
         actions = [parser.OFPActionOutput(out_port)]
 
         if out_port != ofproto.OFPP_FLOOD:
-            match = parser.OFPMatch(in_port=in_port, eth_dst=dst, eth_src=src)
+            ip_pkt = pkt.get_protocol(ipv4_lib.ipv4)
+            if ip_pkt is not None:
+                # IPv4: cai flow L3 co ipv4_src, ipv4_dst
+                # => Flow stats se hien thi IP, tinh duoc entropy
+                match = parser.OFPMatch(
+                    in_port=in_port,
+                    eth_type=0x0800,
+                    ipv4_src=ip_pkt.src,
+                    ipv4_dst=ip_pkt.dst,
+                    ip_proto=ip_pkt.proto
+                )
+            else:
+                # Non-IP (ARP, etc): cai flow L2 theo MAC
+                match = parser.OFPMatch(
+                    in_port=in_port,
+                    eth_dst=dst_mac,
+                    eth_src=src_mac
+                )
             inst = [parser.OFPInstructionActions(ofproto.OFPIT_APPLY_ACTIONS, actions)]
-            mod = parser.OFPFlowMod(datapath=datapath, priority=1,
-                                    match=match, instructions=inst,
-                                    idle_timeout=20, hard_timeout=60)
+            mod = parser.OFPFlowMod(
+                datapath=datapath, priority=1,
+                match=match, instructions=inst,
+                idle_timeout=20, hard_timeout=60
+            )
             datapath.send_msg(mod)
 
         out = parser.OFPPacketOut(

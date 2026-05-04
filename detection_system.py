@@ -85,7 +85,8 @@ class DDoSDetection(app_manager.RyuApp):
                 self.logger.info("Switch removed: dpid=%s", datapath.id)
 
     # -------------------------------------------------------
-    # FIX 3: Handle PacketIn for L2 forwarding (makes ping work!)
+    # FIX 3: Handle PacketIn - install L3 flows for IPv4
+    # so flow stats contain ipv4_src/dst for entropy calculation
     # -------------------------------------------------------
     @set_ev_cls(ofp_event.EventOFPPacketIn, MAIN_DISPATCHER)
     def _packet_in_handler(self, ev):
@@ -95,23 +96,20 @@ class DDoSDetection(app_manager.RyuApp):
         parser = datapath.ofproto_parser
         in_port = msg.match['in_port']
 
-        # Parse packet
-        from ryu.lib.packet import packet, ethernet, ether_types
+        from ryu.lib.packet import packet, ethernet, ether_types, ipv4 as ipv4_lib
         pkt = packet.Packet(msg.data)
         eth = pkt.get_protocols(ethernet.ethernet)[0]
 
         if eth.ethertype == ether_types.ETH_TYPE_LLDP:
-            return  # Ignore LLDP
+            return
 
         dst_mac = eth.dst
         src_mac = eth.src
         dpid = datapath.id
 
-        # Learn MAC -> port mapping
         self.mac_to_port.setdefault(dpid, {})
         self.mac_to_port[dpid][src_mac] = in_port
 
-        # Determine output port
         if dst_mac in self.mac_to_port[dpid]:
             out_port = self.mac_to_port[dpid][dst_mac]
         else:
@@ -119,9 +117,25 @@ class DDoSDetection(app_manager.RyuApp):
 
         actions = [parser.OFPActionOutput(out_port)]
 
-        # Install flow rule to avoid future PacketIn for this flow
         if out_port != ofproto.OFPP_FLOOD:
-            match = parser.OFPMatch(in_port=in_port, eth_dst=dst_mac, eth_src=src_mac)
+            ip_pkt = pkt.get_protocol(ipv4_lib.ipv4)
+            if ip_pkt is not None:
+                # IPv4: install L3 flow with IP fields
+                # => flow stats will show ipv4_src/dst => entropy works!
+                match = parser.OFPMatch(
+                    in_port=in_port,
+                    eth_type=0x0800,
+                    ipv4_src=ip_pkt.src,
+                    ipv4_dst=ip_pkt.dst,
+                    ip_proto=ip_pkt.proto
+                )
+            else:
+                # ARP / non-IP: install L2 flow
+                match = parser.OFPMatch(
+                    in_port=in_port,
+                    eth_dst=dst_mac,
+                    eth_src=src_mac
+                )
             inst = [parser.OFPInstructionActions(ofproto.OFPIT_APPLY_ACTIONS, actions)]
             mod = parser.OFPFlowMod(
                 datapath=datapath,
@@ -133,7 +147,6 @@ class DDoSDetection(app_manager.RyuApp):
             )
             datapath.send_msg(mod)
 
-        # Send the current packet
         out = parser.OFPPacketOut(
             datapath=datapath,
             buffer_id=msg.buffer_id,
