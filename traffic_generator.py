@@ -95,24 +95,24 @@ def collect_attack_traffic(net, duration=3000):
 
     while time.time() < end_time:
         # 1. ICMP Flood (ping flood) tu h1 -> h4
-        # Dung -f (flood) hoac nhieu goi ping nhanh
         print("[+] ICMP Flood: h1 -> h4 (50000 goi)...")
         h1.cmd('ping -c 50000 -i 0.001 10.0.0.4 &')
 
-        # 2. UDP Flood tu nhieu nguon -> h3
-        print("[+] UDP Flood: h2 -> h3 (bandwidth cao)...")
-        h2.cmd('iperf3 -c 10.0.0.3 -u -t 15 -b 100M &')
+        # 2. UDP Flood bang hping3 (tu h2 -> h3)
+        # Dung luong random, max toc do (--flood)
+        print("[+] hping3 UDP Flood: h2 -> h3 port 80...")
+        h2.cmd('hping3 --udp -p 80 --flood --rand-source 10.0.0.3 &')
 
-        # 3. TCP SYN Flood (neu co hping3)
-        # Neu khong co hping3, dung iperf
-        print("[+] TCP Flood: h1 -> h3 (bandwidth cao)...")
-        h1.cmd('iperf3 -c 10.0.0.3 -t 15 -b 50M -P 10 &')
+        # 3. TCP SYN Flood bang hping3 (tu h1 -> h3)
+        # Bắn gói SYN liên tục làm tràn bảng kết nối
+        print("[+] hping3 TCP SYN Flood: h1 -> h3 port 80...")
+        h1.cmd('hping3 -S -p 80 --flood --rand-source 10.0.0.3 &')
 
         time.sleep(15)
 
-        # Tat iperf de tranh tiep tuc
-        h1.cmd('pkill iperf3 2>/dev/null')
-        h2.cmd('pkill iperf3 2>/dev/null')
+        # Tat hping3 va ping de chuan bi vong lap tiep theo
+        h1.cmd('pkill hping3 2>/dev/null')
+        h2.cmd('pkill hping3 2>/dev/null')
         time.sleep(2)
 
         remaining = int(end_time - time.time())
@@ -122,6 +122,7 @@ def collect_attack_traffic(net, duration=3000):
     for h in [h1, h2, h3, h4]:
         h.cmd('pkill ping 2>/dev/null')
         h.cmd('pkill iperf3 2>/dev/null')
+        h.cmd('pkill hping3 2>/dev/null')
 
     print("[ATTACK] HOAN THANH thu thap traffic tan cong!")
 
