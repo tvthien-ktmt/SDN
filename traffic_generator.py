@@ -43,9 +43,9 @@ def collect_normal_traffic(net):
 
     print("\n[NORMAL] Bat dau sinh traffic binh thuong...")
     print("[NORMAL] Dam bao data_collector.py: CURRENT_LABEL = 0")
-    print("[NORMAL] Thu thap trong 120 giay...\n")
+    print("[NORMAL] Thu thap trong 300 giay (5 phut)...\n")
 
-    end_time = time.time() + 120  # Thu thap 2 phut
+    end_time = time.time() + 300  # Thu thap 5 phut (du de co ~200 mau)
 
     while time.time() < end_time:
         # 1. Ping bình thường giữa các host
@@ -84,14 +84,14 @@ def collect_attack_traffic(net):
 
     print("\n[ATTACK] Bat dau sinh traffic tan cong DDoS...")
     print("[ATTACK] Dam bao data_collector.py: CURRENT_LABEL = 1")
-    print("[ATTACK] Thu thap trong 120 giay...\n")
+    print("[ATTACK] Thu thap trong 300 giay (5 phut)...\n")
 
     # Cai dat iperf server tren h3, h4
     h3.cmd('iperf3 -s &')
     h4.cmd('iperf3 -s &')
     time.sleep(1)
 
-    end_time = time.time() + 120
+    end_time = time.time() + 300  # Thu thap 5 phut (du de co ~200 mau)
 
     while time.time() < end_time:
         # 1. ICMP Flood (ping flood) tu h1 -> h4
