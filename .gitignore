@@ -1,0 +1,12 @@
+# Data files - se tao lai tren Linux
+dataset.csv
+collected_data.csv
+ddos_model.sav
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+
+# Logs
+*.log
