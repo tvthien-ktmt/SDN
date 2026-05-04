@@ -159,7 +159,11 @@ print("COPY DOAN CODE NAY VAO detection_system.py:")
 print("="*60)
 print("""
     features = pd.DataFrame(
-        [[pkt_rate, byte_rate, duration]],
-        columns=['pkt_rate', 'byte_rate', 'flow_dur']
+        [[pkt_rate, byte_rate, duration,
+          src_ip_ent, dst_ip_ent,
+          avg_pkt_size, protocol, n_flows_same_src]],
+        columns=['pkt_rate','byte_rate','flow_dur',
+                 'src_ip_ent','dst_ip_ent',
+                 'avg_pkt_size','protocol','n_flows_same_src']
     )
 """)

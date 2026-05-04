@@ -45,33 +45,34 @@ def collect_normal_traffic(net, duration=3000):
     print("[NORMAL] Dam bao data_collector.py: CURRENT_LABEL = 0")
     print(f"[NORMAL] Thu thap trong {duration} giay ({duration//60} phut)...\n")
 
+    # Khoi dong iperf3 server tren h3 va h1 de client ket noi
+    h3.cmd('iperf3 -s -D')  # -D: chay nen (daemon)
+    h1.cmd('iperf3 -s -D')
+    time.sleep(1)
+
     end_time = time.time() + duration
 
     while time.time() < end_time:
-        # 1. Ping bình thường giữa các host
-        print("[+] h1 ping h2 (10 goi)...")
+        # 1. Ping binh thuong giua cac host
         h1.cmd('ping -c 10 10.0.0.2 &')
-
-        print("[+] h3 ping h4 (10 goi)...")
         h3.cmd('ping -c 10 10.0.0.4 &')
-
         time.sleep(5)
 
-        # 2. iperf TCP nhe (bandwidth thap)
-        print("[+] iperf TCP: h2 -> h3 (5 giay, 1Mbps)...")
+        # 2. iperf TCP nhe
         h2.cmd('iperf3 -c 10.0.0.3 -t 5 -b 1M &')
-
-        time.sleep(8)
+        time.sleep(6)
 
         # 3. iperf UDP nhe
-        print("[+] iperf UDP: h4 -> h1 (5 giay, 512Kbps)...")
         h4.cmd('iperf3 -c 10.0.0.1 -u -t 5 -b 512K &')
-
-        time.sleep(8)
+        time.sleep(6)
 
         remaining = int(end_time - time.time())
-        print(f"[NORMAL] Con lai: {remaining} giay...\n")
+        print(f"[NORMAL] Con lai: {remaining} giay...")
 
+    # Cleanup
+    for h in [h1, h2, h3, h4]:
+        h.cmd('pkill ping 2>/dev/null')
+        h.cmd('pkill iperf3 2>/dev/null')
     print("[NORMAL] HOAN THANH thu thap traffic binh thuong!")
 
 
