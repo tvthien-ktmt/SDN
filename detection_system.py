@@ -217,24 +217,11 @@ class DDoSDetection(app_manager.RyuApp):
     # -------------------------------------------------------
     @set_ev_cls(ofp_event.EventOFPFlowStatsReply, MAIN_DISPATCHER)
     def _flow_stats_reply_handler(self, ev):
-        if self.model is None:
-            self.logger.error("No model loaded, skipping detection.")
-            return
-
+        import pandas as pd
         body = ev.msg.body
-        if not body:
-            return
+        datapath = ev.msg.datapath
 
-        # --- Pre-compute entropy va n_flows_same_src ---
-        src_ip_count = {}
-        for stat in body:
-            if stat.packet_count == 0 or stat.priority == 0:
-                continue
-            src_ip = stat.match.get('ipv4_src', None)
-            if src_ip:
-                src_ip_count[src_ip] = src_ip_count.get(src_ip, 0) + 1
-
-        # --- Tinh entropy cho toan bo switch (Global features) ---
+        # --- Tinh entropy toan switch (Global Features) ---
         resolved_srcs = []
         resolved_dsts = []
         for stat in body:
@@ -243,123 +230,98 @@ class DDoSDetection(app_manager.RyuApp):
             d_ip = stat.match.get('ipv4_dst')
             e_src = stat.match.get('eth_src')
             e_dst = stat.match.get('eth_dst')
-            # Uu tien IP, neu khong co thi dung MAC
             resolved_srcs.append(s_ip if s_ip else e_src if e_src else "unknown")
             resolved_dsts.append(d_ip if d_ip else e_dst if e_dst else "unknown")
 
         src_ent = self.calculate_entropy(resolved_srcs)
         dst_ent = self.calculate_entropy(resolved_dsts)
 
-        # --- Phan loai tung flow ---
-        safe_count   = 0
-        attack_flows = []
-
+        # --- Phan loai va Thu thap thong tin tung flow ---
+        active_flows_data = []
+        attack_detected_list = []
+        
         for stat in body:
-            if stat.packet_count == 0 or stat.priority == 0:
+            if stat.priority == 0 or stat.priority == 1000:
                 continue
-
-            # Lay IP/protocol tu match field (L3 flow)
-            src_ip   = stat.match.get('ipv4_src', None)
-            dst_ip   = stat.match.get('ipv4_dst', None)
+            
+            # 1. Trich xuat thong tin co ban
+            src_ip   = stat.match.get('ipv4_src')
+            dst_ip   = stat.match.get('ipv4_dst')
             protocol = stat.match.get('ip_proto', 0)
-
-            # === FALLBACK: Resolve tu bang mac_to_ip neu la L2 flow ===
-            # Truong hop: hping3 --rand-source -> switch cai L2 flow (theo MAC)
-            # -> flow stats khong co ipv4_src -> can tra cuu bang MAC
-            eth_src_m = stat.match.get('eth_src', None)
-            eth_dst_m = stat.match.get('eth_dst', None)
-            attacker_mac = eth_src_m  # Luu MAC ke tan cong de block
-
-            if src_ip is None and eth_src_m and eth_src_m in self.mac_to_ip:
-                src_ip = self.mac_to_ip[eth_src_m]
-            if dst_ip is None and eth_dst_m and eth_dst_m in self.mac_to_ip:
-                dst_ip = self.mac_to_ip[eth_dst_m]
-            if protocol == 0 and eth_src_m and eth_dst_m:
-                protocol = self.mac_to_proto.get((eth_src_m, eth_dst_m), 0)
-
+            eth_src  = stat.match.get('eth_src')
+            
+            # Tinh toan thong so vat ly
             duration = stat.duration_sec + stat.duration_nsec / 1e9
+            if duration < 0.1 or stat.packet_count == 0: continue
+            
+            pkt_rate = stat.packet_count / duration
+            byte_rate = stat.byte_count / duration
+            avg_pkt_size = stat.byte_count / stat.packet_count if stat.packet_count > 0 else 0
+            
+            # Gia lap so luong flow cung nguon (tinh don gian cho demo)
+            n_flows_same_src = resolved_srcs.count(src_ip if src_ip else eth_src)
 
-            # Chi bo qua flow co duration cuc nho (< 0.01s)
-            # Tranh chia cho 0 hoac false positive do flow moi tao ra trong micro-giay
-            # KHONG dung nguong 2.0s vi se bo sot tan cong (hping3 rand-source tao flow ngan)
-            if duration < 0.01:
-                safe_count += 1
-                continue
-
-            if duration <= 0:
-                duration = 0.001
-
-            pkt_rate         = stat.packet_count / duration
-            byte_rate        = stat.byte_count / duration
-            avg_pkt_size     = stat.byte_count / stat.packet_count
-            n_flows_same_src = src_ip_count.get(src_ip, 1) if src_ip else 1
-
+            # 2. AI PREDICTION
             all_vals = {
-                'pkt_rate':          pkt_rate,
-                'byte_rate':         byte_rate,
-                'flow_dur':          duration,
-                'src_ip_ent':        src_ent,
-                'dst_ip_ent':        dst_ent,
-                'avg_pkt_size':      avg_pkt_size,
-                'protocol':          protocol,
-                'n_flows_same_src':  n_flows_same_src,
+                'pkt_rate': pkt_rate, 'byte_rate': byte_rate, 'flow_dur': duration,
+                'src_ip_ent': src_ent, 'dst_ip_ent': dst_ent,
+                'avg_pkt_size': avg_pkt_size, 'protocol': protocol,
+                'n_flows_same_src': n_flows_same_src
             }
-            feature_vals = [all_vals[f] for f in self.feature_names]
-            features     = pd.DataFrame([feature_vals], columns=self.feature_names)
-            prediction   = self.model.predict(features)[0]
+            feat_vals = [all_vals[f] for f in self.feature_names]
+            features  = pd.DataFrame([feat_vals], columns=self.feature_names)
+            prediction = self.model.predict(features)[0] if self.model else 0
 
-            ip_label    = src_ip if src_ip else "Unknown"
-            proto_name  = PROTO_NAME.get(int(protocol), f"PROTO-{int(protocol)}")
+            flow_info = {
+                'src': src_ip if src_ip else eth_src if eth_src else "Unknown",
+                'dst': dst_ip if dst_ip else "Unknown",
+                'proto': PROTO_NAME.get(int(protocol), f"P-{protocol}"),
+                'rate': pkt_rate,
+                'status': "SAFE" if prediction == 0 else "!!! ATTACK !!!",
+                'raw': (src_ip, eth_src, dst_ip, protocol)
+            }
+            active_flows_data.append(flow_info)
 
-            if prediction == 1 and pkt_rate > 0.5:
-                attack_flows.append((
-                    ip_label, proto_name, pkt_rate, byte_rate,
-                    src_ip, dst_ip, protocol, attacker_mac, ev.msg.datapath
-                ))
-            else:
-                safe_count += 1
+            # 3. MITIGATION (Neu la tan cong)
+            if prediction == 1:
+                ip_label = src_ip if src_ip else "Unknown"
+                proto_name = flow_info['proto']
+                
+                if src_ent > 3.0 and eth_src:
+                    # Chặn MAC nếu entropy cao (Phát hiện IP ảo)
+                    self._install_block_rule(datapath, None, dst_ip, int(protocol), ip_label, proto_name, eth_src)
+                else:
+                    # Chặn IP nếu entropy thấp (Tấn công tập trung)
+                    self._install_block_rule(datapath, src_ip, dst_ip, int(protocol), ip_label, proto_name, eth_src)
+                
+                attack_detected_list.append(flow_info)
 
-        # -------------------------------------------------------
-        # HIEN THI: Gon gang, ro rang
-        # -------------------------------------------------------
-        separator = "=" * 60
+        # --- HIEN THI TERMINAL ---
+        if not active_flows_data and not self.blocked_rules:
+            self.logger.info("[SCAN] No active flows.")
+            return
 
-        # Dong tong hop SAFE (1 dong duy nhat thay vi spam tung flow)
-        if safe_count > 0:
-            self.logger.info(
-                "[SCAN] %d flows SAFE | src_entropy=%.3f | dst_entropy=%.3f",
-                safe_count, src_ent, dst_ent
-            )
+        print("\n" + "="*75)
+        self.logger.info("[SCAN] NETWORK STATUS | Entropy: Src=%.2f, Dst=%.2f", src_ent, dst_ent)
+        
+        if active_flows_data:
+            print(f"  {'SOURCE IP/MAC':<25} | {'DESTINATION':<15} | {'PROTO':<6} | {'RATE':<10} | {'STATUS'}")
+            print(f"  {'-'*25}-+-{'-'*15}-+-{'-'*6}-+-{'-'*10}-+-{'-'*10}")
+            for f in active_flows_data:
+                print(f"  {str(f['src']):<25} | {str(f['dst']):<15} | {f['proto']:<6} | {f['rate']:>7.1f} p/s | {f['status']}")
 
-        # Xu ly tung flow TAN CONG
-        for (ip_label, proto_name, pkt_rate, byte_rate,
-             src_ip, dst_ip, protocol, attacker_mac, datapath) in attack_flows:
-            self.logger.warning(separator)
-            self.logger.warning("  !!!  DDoS ATTACK DETECTED  !!!")
-            self.logger.warning("  Attacker IP : %s", ip_label)
-            if attacker_mac:
-                self.logger.warning("  Attacker MAC: %s", attacker_mac)
-            if dst_ip:
-                self.logger.warning("  Victim IP   : %s  <-- dang bi tan cong", dst_ip)
-            self.logger.warning("  Protocol    : %s", proto_name)
-            self.logger.warning("  Pkt Rate    : %s pkt/s", f"{pkt_rate:,.0f}")
-            self.logger.warning("  Byte Rate   : %s B/s  (~%.1f Mbps)",
-                                f"{byte_rate:,.0f}", byte_rate * 8 / 1_000_000)
-            self.logger.warning("  Action      : BLOCKING via Table 1 rule")
-            self.logger.warning(separator)
+        if attack_detected_list:
+            print("-" * 75)
+            self.logger.warning("  ==> ALERT: %d DDoS FLOWS DETECTED AND MITIGATED!", len(attack_detected_list))
 
-            self._install_block_rule(
-                datapath, src_ip, dst_ip, int(protocol),
-                ip_label, proto_name, attacker_mac
-            )
-
-        # Neu khong co flow nao (switch trong) - chi in 1 dong, khong in bang
-        if safe_count == 0 and not attack_flows:
-            if self.blocked_rules:
-                self.logger.info("[SCAN] No active flows (all blocked). Rules active: %d",
-                                 len(self.blocked_rules))
-            else:
-                self.logger.info("[SCAN] No active flows on switch.")
+        if self.blocked_rules:
+            print(f"\n--- [BLOCKING ACTIVE: {len(self.blocked_rules)} rules] ---")
+            # Hien thi 5 luat moi nhat
+            for r in self.blocked_rules[-5:]:
+                print(f"  DROP | {r['desc']} | Active: {r['time']}")
+            if len(self.blocked_rules) > 5:
+                print(f"  ... and {len(self.blocked_rules)-5} more active rules")
+        print("="*75 + "\n")
 
     # -------------------------------------------------------
     # Cai luat BLOCK vao Table 1 (ro rang tung loai tan cong)
@@ -396,17 +358,9 @@ class DDoSDetection(app_manager.RyuApp):
 
         elif attacker_mac:
             # Khong co IP cu the (hping3 --rand-source)
-            # CHAN THEO MAC cua ke tan cong - chinh xac hon chan toan bo IPv4
-            if protocol in (1, 6, 17):
-                match = parser.OFPMatch(
-                    eth_src=attacker_mac,
-                    eth_type=0x0800,
-                    ip_proto=protocol
-                )
-                rule_desc = f"DROP {proto_name} from MAC {attacker_mac}{victim_str}"
-            else:
-                match = parser.OFPMatch(eth_src=attacker_mac, eth_type=0x0800)
-                rule_desc = f"DROP ALL from MAC {attacker_mac}{victim_str}"
+            # CHAN TOAN BO IPv4 tu MAC nay - vi no dang gia mao IP lung tung
+            match = parser.OFPMatch(eth_src=attacker_mac, eth_type=0x0800)
+            rule_desc = f"DROP ALL IPv4 from MAC {attacker_mac}{victim_str}"
 
         else:
             # Khong biet gi ca: chan toan bo IPv4 theo protocol
