@@ -108,6 +108,16 @@ def collect_attack_traffic(net, duration=3000):
         print("[+] hping3 TCP SYN Flood: h1 -> h3 port 80...")
         h1.cmd('hping3 -S -p 80 --flood --rand-source 10.0.0.3 &')
 
+        # 4. TCP ACK Flood bang hping3 (tu h2 -> h4)
+        # Bắn gói ACK giả mạo làm tốn tài nguyên xử lý của firewall/switch
+        print("[+] hping3 TCP ACK Flood: h2 -> h4 port 80...")
+        h2.cmd('hping3 -A -p 80 --flood --rand-source 10.0.0.4 &')
+
+        # 5. TCP FIN Flood bang hping3 (tu h1 -> h4)
+        # Bắn gói FIN giả mạo để phá hoại kết nối
+        print("[+] hping3 TCP FIN Flood: h1 -> h4 port 80...")
+        h1.cmd('hping3 -F -p 80 --flood --rand-source 10.0.0.4 &')
+
         time.sleep(15)
 
         # Tat hping3 va ping de chuan bi vong lap tiep theo
