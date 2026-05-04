@@ -141,9 +141,12 @@ class DDoSDetection(app_manager.RyuApp):
         # Lam truoc khi kiem tra out_port de dam bao luon ghi nho
         from ryu.lib.packet import ipv4 as ipv4_lib
         ip_pkt_early = pkt.get_protocol(ipv4_lib.ipv4)
+        # Luu mapping MAC -> IP va Protocol de tra cuu sau nay
         if ip_pkt_early is not None:
             self.mac_to_ip[src_mac] = ip_pkt_early.src
             self.mac_to_ip[dst_mac] = ip_pkt_early.dst
+            
+            # Luu protocol cho cap MAC nay
             self.mac_to_proto[(src_mac, dst_mac)] = ip_pkt_early.proto
 
         out_port = self.mac_to_port[dpid].get(dst_mac, ofproto.OFPP_FLOOD)
