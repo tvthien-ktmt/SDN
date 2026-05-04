@@ -259,9 +259,10 @@ class DDoSDetection(app_manager.RyuApp):
 
             duration = stat.duration_sec + stat.duration_nsec / 1e9
 
-            # Bo qua flow qua moi (< 2 giay) - tranh false positive
-            # Vi du: ping 1 goi trong 0.001s -> pkt_rate = 1000 pkt/s -> bao nhầm!
-            if duration < 2.0:
+            # Chi bo qua flow co duration cuc nho (< 0.01s)
+            # Tranh chia cho 0 hoac false positive do flow moi tao ra trong micro-giay
+            # KHONG dung nguong 2.0s vi se bo sot tan cong (hping3 rand-source tao flow ngan)
+            if duration < 0.01:
                 safe_count += 1
                 continue
 
