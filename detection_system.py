@@ -223,12 +223,21 @@ class DDoSDetection(app_manager.RyuApp):
             if src_ip:
                 src_ip_count[src_ip] = src_ip_count.get(src_ip, 0) + 1
 
-        src_ips = [stat.match.get('ipv4_src')
-                   for stat in body if 'ipv4_src' in stat.match]
-        dst_ips = [stat.match.get('ipv4_dst')
-                   for stat in body if 'ipv4_dst' in stat.match]
-        src_ent = self.calculate_entropy(src_ips)
-        dst_ent = self.calculate_entropy(dst_ips)
+        # --- Tinh entropy cho toan bo switch (Global features) ---
+        resolved_srcs = []
+        resolved_dsts = []
+        for stat in body:
+            if stat.priority == 0: continue
+            s_ip = stat.match.get('ipv4_src')
+            d_ip = stat.match.get('ipv4_dst')
+            e_src = stat.match.get('eth_src')
+            e_dst = stat.match.get('eth_dst')
+            # Uu tien IP, neu khong co thi dung MAC
+            resolved_srcs.append(s_ip if s_ip else e_src if e_src else "unknown")
+            resolved_dsts.append(d_ip if d_ip else e_dst if e_dst else "unknown")
+
+        src_ent = self.calculate_entropy(resolved_srcs)
+        dst_ent = self.calculate_entropy(resolved_dsts)
 
         # --- Phan loai tung flow ---
         safe_count   = 0
