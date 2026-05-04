@@ -258,6 +258,13 @@ class DDoSDetection(app_manager.RyuApp):
                 protocol = self.mac_to_proto.get((eth_src_m, eth_dst_m), 0)
 
             duration = stat.duration_sec + stat.duration_nsec / 1e9
+
+            # Bo qua flow qua moi (< 2 giay) - tranh false positive
+            # Vi du: ping 1 goi trong 0.001s -> pkt_rate = 1000 pkt/s -> bao nhầm!
+            if duration < 2.0:
+                safe_count += 1
+                continue
+
             if duration <= 0:
                 duration = 0.001
 
