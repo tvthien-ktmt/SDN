@@ -2,14 +2,34 @@
 # Cai tien:
 #   1. Log gon gang: chi hien tong hop SAFE, khong spam tung flow
 #   2. Table 1: bang luat chan rieng biet, ro rang tung loai tan cong
+#   3. Tu dong ghi log vao file ddos_detection.log
 import pandas as pd
 import joblib
 import math
+import logging
+from logging.handlers import RotatingFileHandler
 from ryu.base import app_manager
 from ryu.controller import ofp_event
 from ryu.controller.handler import MAIN_DISPATCHER, CONFIG_DISPATCHER, set_ev_cls
 from ryu.ofproto import ofproto_v1_3
 from ryu.lib import hub
+
+# === SETUP FILE LOGGING ===
+# Tu dong ghi tat ca log vao ddos_detection.log
+# Max 5MB moi file, giu lai 3 file gan nhat
+_file_handler = RotatingFileHandler(
+    'ddos_detection.log',
+    maxBytes=5 * 1024 * 1024,  # 5 MB
+    backupCount=3,
+    encoding='utf-8'
+)
+_file_handler.setLevel(logging.DEBUG)
+_file_handler.setFormatter(logging.Formatter(
+    '[%(asctime)s] %(levelname)-8s %(message)s',
+    datefmt='%Y-%m-%d %H:%M:%S'
+))
+# Gan vao root logger de bat tat ca log cua Ryu
+logging.getLogger().addHandler(_file_handler)
 
 # Giai ma protocol number -> ten
 PROTO_NAME = {1: 'ICMP', 6: 'TCP', 17: 'UDP', 0: 'OTHER'}
