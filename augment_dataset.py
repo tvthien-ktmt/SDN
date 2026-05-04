@@ -14,7 +14,7 @@ Chay tren Windows hoac Linux:
 import pandas as pd
 import numpy as np
 
-DATASET_PATH = "dataset.csv"
+DATASET_PATH = "collected_data.csv"  # File thu thap tren Ubuntu
 RANDOM_SEED  = 42
 np.random.seed(RANDOM_SEED)
 
