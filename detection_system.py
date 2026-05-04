@@ -90,7 +90,12 @@ class DDoSDetection(app_manager.RyuApp):
         ofproto  = datapath.ofproto
         parser   = datapath.ofproto_parser
 
-        # Table 0 miss: chuyen len controller
+        # 0. Xoa tat ca flow cu tren switch de dam bao moi truong sach
+        mod_del = parser.OFPFlowMod(datapath=datapath, command=ofproto.OFPFC_DELETE,
+                                    out_port=ofproto.OFPP_ANY, out_group=ofproto.OFPG_ANY)
+        datapath.send_msg(mod_del)
+
+        # 1. Table 0 miss: chuyen len controller
         match   = parser.OFPMatch()
         actions = [parser.OFPActionOutput(ofproto.OFPP_CONTROLLER,
                                           ofproto.OFPCML_NO_BUFFER)]
@@ -99,7 +104,7 @@ class DDoSDetection(app_manager.RyuApp):
                                      match=match, instructions=inst,
                                      table_id=0)
         datapath.send_msg(mod)
-        self.logger.info("Switch %s: Ready (Table 0 + Table 1 initialized)", datapath.id)
+        self.logger.info("Switch %d: Ready (Flows cleared, Table 0 initialized)", datapath.id)
 
     @set_ev_cls(ofp_event.EventOFPStateChange, [MAIN_DISPATCHER, CONFIG_DISPATCHER])
     def _state_change_handler(self, ev):
@@ -163,8 +168,11 @@ class DDoSDetection(app_manager.RyuApp):
                     ip_proto=ip_pkt.proto
                 )
             else:
+                # Luat L2 fallback: BAT BUOC phai co eth_type de khong nuot nham IP traffic
+                # Neu la ARP thi dung ETH_TYPE_ARP, neu khong thi dung dung kieu thuc te cua goi tin
                 match = parser.OFPMatch(
                     in_port=in_port,
+                    eth_type=eth.ethertype,
                     eth_dst=dst_mac,
                     eth_src=src_mac
                 )
