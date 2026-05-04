@@ -254,25 +254,21 @@ class DDoSDetection(app_manager.RyuApp):
             self.logger.warning("  !!!  DDoS ATTACK DETECTED  !!!")
             self.logger.warning("  Source IP   : %s", ip_label)
             self.logger.warning("  Protocol    : %s", proto_name)
-            self.logger.warning("  Pkt Rate    : %,.0f pkt/s", pkt_rate)
-            self.logger.warning("  Byte Rate   : %,.0f B/s  (~%.1f Mbps)",
-                                byte_rate, byte_rate * 8 / 1_000_000)
+            self.logger.warning("  Pkt Rate    : %s pkt/s", f"{pkt_rate:,.0f}")
+            self.logger.warning("  Byte Rate   : %s B/s  (~%.1f Mbps)",
+                                f"{byte_rate:,.0f}", byte_rate * 8 / 1_000_000)
             self.logger.warning("  Action      : BLOCKING via Table 1 rule")
             self.logger.warning(separator)
 
             self._install_block_rule(datapath, src_ip, int(protocol), ip_label, proto_name)
 
-        # Neu khong co flow nao (switch trong)
+        # Neu khong co flow nao (switch trong) - chi in 1 dong, khong in bang
         if safe_count == 0 and not attack_flows:
-            self.logger.info("[SCAN] No active flows on switch.")
-
-        # Hien thi bang luat chan hien tai
-        if self.blocked_rules:
-            self.logger.info("--- [TABLE 1 - BLOCK RULES] ---")
-            for rule in self.blocked_rules:
-                self.logger.info("  DROP | IP: %-18s | Proto: %-5s | Added: %s",
-                                 rule['ip'], rule['proto'], rule['time'])
-            self.logger.info("-------------------------------")
+            if self.blocked_rules:
+                self.logger.info("[SCAN] No active flows (all blocked). Rules active: %d",
+                                 len(self.blocked_rules))
+            else:
+                self.logger.info("[SCAN] No active flows on switch.")
 
     # -------------------------------------------------------
     # Cai luat BLOCK vao Table 1 (ro rang tung loai tan cong)
@@ -342,8 +338,13 @@ class DDoSDetection(app_manager.RyuApp):
             'desc':     rule_desc
         })
 
-        # Ghi log xac nhan
-        self.logger.error("  [TABLE 1 RULE ADDED] %s (timeout: 120s)", rule_desc)
+        # Ghi log xac nhan + in bang luat sau khi them moi
+        self.logger.warning("  [TABLE 1 RULE ADDED] %s (timeout: 120s)", rule_desc)
+        self.logger.warning("--- [TABLE 1 - BLOCK RULES] (Active: %d) ---", len(self.blocked_rules))
+        for rule in self.blocked_rules:
+            self.logger.warning("  DROP | IP: %-18s | Proto: %-5s | Added: %s",
+                                rule['ip'], rule['proto'], rule['time'])
+        self.logger.warning("-------------------------------")
 
         # Gioi han danh sach hien thi (giu 10 luat gan nhat)
         if len(self.blocked_rules) > 10:
