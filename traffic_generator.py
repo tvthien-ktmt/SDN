@@ -137,10 +137,70 @@ def collect_attack_traffic(net, duration=3000):
     print("[ATTACK] HOAN THANH thu thap traffic tan cong!")
 
 
+def collect_mixed_traffic(net, duration=3000):
+    """
+    Sinh traffic HON HOP (MIXED): Vua co normal traffic (ping, iperf), vua co DDoS
+    Dung de kiem tra viec ngan chan tan cong co lam chet traffic binh thuong khong.
+    """
+    h1, h2, h3, h4 = net.get('h1', 'h2', 'h3', 'h4')
+
+    print("\n[MIXED] Bat dau sinh traffic HON HOP (Tan cong + Binh thuong)...")
+    print(f"[MIXED] Thu thap trong {duration} giay ({duration//60} phut)...\n")
+
+    # Bat Normal Services (h3, h4 lam server)
+    h3.cmd('iperf3 -s -D')
+    h4.cmd('iperf3 -s -D')
+    time.sleep(1)
+
+    end_time = time.time() + duration
+
+    while time.time() < end_time:
+        # --- 1. NORMAL TRAFFIC (Luon chay ngam) ---
+        print("  [Normal] h1 ping h3, h2 ping h4...")
+        h1.cmd('ping -c 20 -i 1 10.0.0.3 &')
+        h2.cmd('ping -c 20 -i 1 10.0.0.4 &')
+        
+        # Traffic mang nhe
+        h2.cmd('iperf3 -c 10.0.0.3 -t 5 -b 1M &')
+        time.sleep(2)
+
+        # --- 2. MULTIPLE ATTACKS (Tan cong cung luc) ---
+        print("  [Attack] h1 -> h4: ICMP Flood (Rand-source)")
+        h1.cmd('hping3 --icmp --flood --rand-source 10.0.0.4 &')
+        
+        print("  [Attack] h2 -> h3: UDP Flood (Rand-source)")
+        h2.cmd('hping3 --udp -p 80 --flood --rand-source 10.0.0.3 &')
+
+        # De tan cong chay trong 10 giay
+        time.sleep(10)
+
+        # Tat tan cong de mang the binh phuc
+        print("  [Attack] Dung tan cong tam thoi...")
+        h1.cmd('pkill hping3 2>/dev/null')
+        h2.cmd('pkill hping3 2>/dev/null')
+        
+        # Tiep tuc normal traffic trong 5 giay de kiem tra xem co bi block oan khong
+        print("  [Normal] Kiem tra Normal traffic sau khi block...")
+        h1.cmd('ping -c 5 -i 0.5 10.0.0.2 &')
+        h3.cmd('ping -c 5 -i 0.5 10.0.0.4 &')
+        time.sleep(5)
+
+        remaining = int(end_time - time.time())
+        print(f"[MIXED] Con lai: {remaining} giay...\n")
+
+    # Cleanup
+    for h in [h1, h2, h3, h4]:
+        h.cmd('pkill ping 2>/dev/null')
+        h.cmd('pkill iperf3 2>/dev/null')
+        h.cmd('pkill hping3 2>/dev/null')
+
+    print("[MIXED] HOAN THANH kịch bản kiểm thử hỗn hợp!")
+
+
 def main():
     parser = argparse.ArgumentParser(description='Mininet Traffic Generator for DDoS Dataset')
-    parser.add_argument('--mode', choices=['normal', 'attack'], required=True,
-                        help='normal: safe traffic | attack: DDoS traffic')
+    parser.add_argument('--mode', choices=['normal', 'attack', 'mixed'], required=True,
+                        help='normal: safe | attack: DDoS | mixed: both (test false positives)')
     parser.add_argument('--duration', type=int, default=3000,
                         help='Thoi gian thu thap (giay). Default=3000 (50 phut). Vi du: 7200 = 2 tieng')
     args = parser.parse_args()
@@ -174,8 +234,10 @@ def main():
     # Sinh traffic theo mode
     if args.mode == 'normal':
         collect_normal_traffic(net, args.duration)
-    else:
+    elif args.mode == 'attack':
         collect_attack_traffic(net, args.duration)
+    elif args.mode == 'mixed':
+        collect_mixed_traffic(net, args.duration)
 
     net.stop()
     print("\n[DONE] Da dung Mininet. Kiem tra file collected_data.csv")

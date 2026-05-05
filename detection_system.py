@@ -272,6 +272,13 @@ class DDoSDetection(app_manager.RyuApp):
             features  = pd.DataFrame([feat_vals], columns=self.feature_names)
             prediction = self.model.predict(features)[0] if self.model else 0
 
+            # --- FALSE POSITIVE SAFEGUARD ---
+            # Trong kịch bản tấn công hỗn hợp (Mixed), Entropy toàn mạng (src_ent) sẽ rất cao.
+            # Điều này làm Model ML có thể dự đoán NHẦM các luồng bình thường (Ping, Web) thành Tấn công.
+            # Chúng ta sẽ bảo vệ các luồng Normal Traffic bằng một ngưỡng an toàn (Ví dụ: < 50 pkt/s).
+            if prediction == 1 and pkt_rate < 50.0:
+                prediction = 0 # Ép về luồng SAFE
+
             flow_info = {
                 'src': src_ip if src_ip else eth_src if eth_src else "Unknown",
                 'dst': dst_ip if dst_ip else "Unknown",
