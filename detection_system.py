@@ -163,6 +163,7 @@ class DDoSDetection(app_manager.RyuApp):
                 match = parser.OFPMatch(
                     in_port=in_port,
                     eth_type=0x0800,
+                    eth_src=src_mac,  # <-- QUAN TRONG: Them cai nay de flow stats tra ve MAC ke tan cong!
                     ipv4_src=ip_pkt.src,
                     ipv4_dst=ip_pkt.dst,
                     ip_proto=ip_pkt.proto
