@@ -298,10 +298,10 @@ class DDoSDetection(app_manager.RyuApp):
                 proto_name = flow_info['proto']
                 
                 if src_ent > 3.0 and eth_src:
-                    # Chặn MAC nếu entropy cao (Phát hiện IP ảo)
+                    # Chặn MAC nếu entropy cao (Phát hiện IP ảo) - BỎ QUA src_ip ảo
                     self._install_block_rule(datapath, None, dst_ip, int(protocol), ip_label, proto_name, eth_src)
                 else:
-                    # Chặn IP nếu entropy thấp (Tấn công tập trung)
+                    # Chặn IP nếu entropy thấp (Tấn công tập trung từ 1 IP)
                     self._install_block_rule(datapath, src_ip, dst_ip, int(protocol), ip_label, proto_name, eth_src)
                 
                 attack_detected_list.append(flow_info)
@@ -420,13 +420,8 @@ class DDoSDetection(app_manager.RyuApp):
             'desc':      rule_desc
         })
 
-        # Hien thi bang sau khi them rule moi
-        self.logger.warning("  [TABLE 1 RULE ADDED] %s (timeout: 120s)", rule_desc)
-        self.logger.warning("--- [TABLE 1 - BLOCK RULES] (Active: %d) ---", len(self.blocked_rules))
-        for rule in self.blocked_rules:
-            self.logger.warning("  DROP | Attacker: %-20s | Victim: %-15s | Proto: %-5s | %s",
-                                rule['ip'], rule['victim'], rule['proto'], rule['time'])
-        self.logger.warning("-------------------------------")
+        # Hien thi thong bao ngan gon sau khi them rule moi
+        self.logger.warning("  [!] DA THEM LUAT KHOA: %s (Hieu luc: 120s)", rule_desc)
 
         if len(self.blocked_rules) > 10:
             self.blocked_rules = self.blocked_rules[-10:]
