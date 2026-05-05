@@ -284,6 +284,8 @@ class DDoSDetection(app_manager.RyuApp):
                 'dst': dst_ip if dst_ip else "Unknown",
                 'proto': PROTO_NAME.get(int(protocol), f"P-{protocol}"),
                 'rate': pkt_rate,
+                'byte_rate': byte_rate,
+                'duration': duration,
                 'status': "SAFE" if prediction == 0 else "!!! ATTACK !!!",
                 'raw': (src_ip, eth_src, dst_ip, protocol)
             }
@@ -305,30 +307,43 @@ class DDoSDetection(app_manager.RyuApp):
 
         # --- HIEN THI TERMINAL ---
         if not active_flows_data and not self.blocked_rules:
-            self.logger.info("[SCAN] No active flows.")
+            self.logger.info("[SCAN] Mang hien tai dang Tinh lang (Khong co luu luong).")
             return
 
-        print("\n" + "="*75)
-        self.logger.info("[SCAN] NETWORK STATUS | Entropy: Src=%.2f, Dst=%.2f", src_ent, dst_ent)
+        def format_bytes(b):
+            if b < 1024: return f"{b:.0f} B/s"
+            elif b < 1024*1024: return f"{b/1024:.1f} KB/s"
+            else: return f"{b/(1024*1024):.2f} MB/s"
+
+        print("\n" + "━"*90)
+        print(f"  [NETWORK MONITOR]  Global Entropy: Source = {src_ent:.3f} | Destination = {dst_ent:.3f}")
+        print("━"*90)
         
         if active_flows_data:
-            print(f"  {'SOURCE IP/MAC':<25} | {'DESTINATION':<15} | {'PROTO':<6} | {'RATE':<10} | {'STATUS'}")
-            print(f"  {'-'*25}-+-{'-'*15}-+-{'-'*6}-+-{'-'*10}-+-{'-'*10}")
+            print(f"  {'SOURCE (IP/MAC)':<22} | {'DESTINATION':<15} | {'PROTO':<6} | {'PKT RATE':<10} | {'BYTE RATE':<12} | {'STATUS'}")
+            print(f"  {'-'*22}-+-{'-'*15}-+-{'-'*6}-+-{'-'*10}-+-{'-'*12}-+-{'-'*10}")
             for f in active_flows_data:
-                print(f"  {str(f['src']):<25} | {str(f['dst']):<15} | {f['proto']:<6} | {f['rate']:>7.1f} p/s | {f['status']}")
+                br_str = format_bytes(f['byte_rate'])
+                status_color = f['status'] # Co the them ma mau ANSI neu ban muon, nhung terminal Ryu hien thi text thuong tot nhat
+                print(f"  {str(f['src']):<22} | {str(f['dst']):<15} | {f['proto']:<6} | {f['rate']:>6.1f} p/s | {br_str:>10} | [{status_color}]")
 
         if attack_detected_list:
-            print("-" * 75)
-            self.logger.warning("  ==> ALERT: %d DDoS FLOWS DETECTED AND MITIGATED!", len(attack_detected_list))
+            print("━" * 90)
+            self.logger.warning("  [!] HE THONG PHONG THU: Da tieu diet %d luong tan cong!", len(attack_detected_list))
 
         if self.blocked_rules:
-            print(f"\n--- [BLOCKING ACTIVE: {len(self.blocked_rules)} rules] ---")
-            # Hien thi 5 luat moi nhat
-            for r in self.blocked_rules[-5:]:
-                print(f"  DROP | {r['desc']} | Active: {r['time']}")
-            if len(self.blocked_rules) > 5:
-                print(f"  ... and {len(self.blocked_rules)-5} more active rules")
-        print("="*75 + "\n")
+            print(f"\n  --- DANH SACH DEN (BLACKLIST) - Đang khoá {len(self.blocked_rules)} luồng ---")
+            print(f"  {'THOI GIAN':<10} | {'CHI TIET LUAT CHAN (Hieu luc 120s)'}")
+            print(f"  {'-'*10}-+-{'-'*65}")
+            
+            # Hien thi cac luat gan nhat
+            for r in self.blocked_rules[-8:]:
+                print(f"  {r['time']:<10} | {r['desc']}")
+            
+            if len(self.blocked_rules) > 8:
+                print(f"  ... và {len(self.blocked_rules)-8} đối tượng khác đang bị khoá.")
+        
+        print("━"*90 + "\n")
 
     # -------------------------------------------------------
     # Cai luat BLOCK vao Table 1 (ro rang tung loai tan cong)
